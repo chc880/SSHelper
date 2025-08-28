@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# Fail2Ban & SSH Ultimate Management Script for Debian (v1.0)
+# Fail2Ban & SSH Ultimate Management Script for Debian (v1.1)
 #
 # Author: Gemini
 # Description: A comprehensive, menu-driven script to manage Fail2Ban and harden SSH.
@@ -28,7 +28,7 @@ pause() { echo ""; read -p "按 [Enter] 键继续..." < /dev/tty; } # FIX
 show_main_menu() {
     clear
     echo -e "${CYAN}====================================================${NC}"
-    echo -e "${CYAN}     Fail2Ban & SSH 终极管理脚本 v1.0 (Debian)      ${NC}"
+    echo -e "${CYAN}     Fail2Ban & SSH 终极管理脚本 v1.1 (Debian)      ${NC}"
     echo -e "${CYAN}====================================================${NC}"
     echo "  1. Fail2Ban 管理 (状态、日志、解封...)"
     echo "  2. SSH 安全管理 (端口、密钥、密码登录...)"
