@@ -48,23 +48,28 @@
 
 ## 🚀 快速开始 (Quick Start)
 
-您无需 `git clone`，只需在您的 Debian / Ubuntu 终端中运行下面的一行命令即可启动 SSHelper。
+您只需在您的 Debian / Ubuntu 终端中复制并运行下面的一行命令即可。
 
 *(推荐使用 `curl`，大多数系统默认安装)*
 
 ### 使用 `curl`
 ```bash
-curl -sSL https://raw.githubusercontent.com/chc880/SSHelper/main/sshelper.sh | sudo bash
+curl -sSL -o sshelper.sh https://raw.githubusercontent.com/chc880/SSHelper/main/sshelper.sh && chmod +x sshelper.sh && sudo ./sshelper.sh
 ````
 
 ### 或者使用 `wget`
 
 ```bash
-wget -qO- https://raw.githubusercontent.com/chc880/SSHelper/main/sshelper.sh | sudo bash
+wget -q -O sshelper.sh https://raw.githubusercontent.com/chc880/SSHelper/main/sshelper.sh && chmod +x sshelper.sh && sudo ./sshelper.sh
 ```
 
 > **这条命令做了什么？**
-> 它会从 GitHub 下载最新的 `sshelper.sh` 脚本内容，并通过管道直接交给 `bash` 以 `sudo` (root) 权限执行，整个过程不会在您的磁盘上留下任何文件。
+>
+> 1.  **下载脚本**: 使用 `curl` 或 `wget` 将最新的 `sshelper.sh` 脚本下载到您当前所在的目录。
+> 2.  **授予权限**: 使用 `chmod +x` 给予该脚本可执行权限。
+> 3.  **运行脚本**: 使用 `sudo ./sshelper.sh` 以root权限执行脚本。
+>
+> **提示**: 首次运行后，脚本文件会保留。下次您想再次使用时，只需在同一个目录下执行 `sudo ./sshelper.sh` 即可。
 
 -----
 
@@ -105,3 +110,6 @@ wget -qO- https://raw.githubusercontent.com/chc880/SSHelper/main/sshelper.sh | s
 ## 📄 开源许可 (License)
 
 本项目采用 [MIT](https://opensource.org/licenses/MIT) 许可协议。
+
+```
+```
