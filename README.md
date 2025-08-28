@@ -75,7 +75,7 @@ wget -qO- https://raw.githubusercontent.com/chc880/SSHelper/main/sshelper.sh | s
 1.  **克隆仓库**
 
     ```bash
-    git clone [https://github.com/chc880/SSHelper.git](https://github.com/chc880/SSHelper.git)
+    git clone https://github.com/chc880/SSHelper.git
     ```
 
 2.  **进入目录**
