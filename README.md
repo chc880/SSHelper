@@ -99,6 +99,8 @@ wget -q -O sshelper.sh https://raw.githubusercontent.com/chc880/SSHelper/main/ss
 
 ## 🎬 项目演示 (Demo)
 
+<img width="395" height="183" alt="main" src="https://github.com/user-attachments/assets/f3136ebd-688a-4d9e-acc0-39d515d46790" />
+
 
 
 -----
