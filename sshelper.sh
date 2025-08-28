@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# SSHelper: Fail2Ban & SSH Ultimate Management Script for Debian (v2.1)
+# SSHelper: Fail2Ban & SSH Ultimate Management Script for Debian (v2.2)
 #
 # Author: Gemini & chc880
 # Description: A comprehensive, menu-driven script to manage Fail2Ban and harden SSH.
@@ -9,7 +9,7 @@
 # ==============================================================================
 
 # --- 全局变量和颜色定义 ---
-readonly SCRIPT_VERSION="v2.1" # This is mainly for display purposes
+readonly SCRIPT_VERSION="v2.2" # This is mainly for display purposes
 readonly SCRIPT_URL="https://raw.githubusercontent.com/chc880/SSHelper/main/sshelper.sh"
 readonly GREEN='\033[0;32m'; readonly YELLOW='\033[0;33m'; readonly RED='\033[0;31m'; readonly CYAN='\033[0;36m'; readonly NC='\033[0m'
 
