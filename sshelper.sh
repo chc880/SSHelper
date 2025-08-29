@@ -1,17 +1,22 @@
 #!/bin/bash
 
 # ==============================================================================
-# SSHelper: Fail2Ban & SSH Ultimate Management Script for Debian (v2.2)
+# SSHelper: Fail2Ban & SSH Ultimate Management Script for Debian (v2.3)
 #
 # Author: Gemini & chc880
 # Description: A comprehensive, menu-driven script to manage Fail2Ban and harden SSH.
+#              - Added a toggle for PubkeyAuthentication (key-based login).
 #              - Code reformatted for better readability and maintenance.
 # ==============================================================================
 
 # --- 全局变量和颜色定义 ---
-readonly SCRIPT_VERSION="v2.2"
+readonly SCRIPT_VERSION="v2.3"
 readonly SCRIPT_URL="https://raw.githubusercontent.com/chc880/SSHelper/main/sshelper.sh"
-readonly GREEN='\033[0;32m'; readonly YELLOW='\033[0;33m'; readonly RED='\033[0;31m'; readonly CYAN='\033[0;36m'; readonly NC='\033[0m'
+readonly GREEN='\033[0;32m'
+readonly YELLOW='\033[0;33m'
+readonly RED='\033[0;31m'
+readonly CYAN='\033[0;36m'
+readonly NC='\033[0m'
 
 # --- 辅助函数 ---
 info() {
@@ -78,7 +83,6 @@ manage_fail2ban() {
         show_fail2ban_menu
         read -p "选择: " choice < /dev/tty
 
-        # 对需要预先安装Fail2Ban的选项进行检查
         if [[ "3456" =~ $choice ]]; then
             if ! check_fail2ban_installed; then
                 error "Fail2Ban 未安装，请先使用选项 1 安装。"
@@ -174,21 +178,17 @@ unban_by_number() {
         info "当前无被封禁IP"
         return
     fi
-
     local -a ips
     read -r -a ips <<< "$ip_str"
-
     echo "当前被封禁IP:"
     for i in "${!ips[@]}"; do
         echo -e "  ${YELLOW}$((i+1)).${NC} ${ips[$i]}"
     done
-
     read -p "输入编号: " num < /dev/tty
     if ! [[ "$num" =~ ^[0-9]+$ ]] || [ "$num" -lt 1 ] || [ "$num" -gt ${#ips[@]} ]; then
         error "无效编号"
         return
     fi
-
     local ip=${ips[$((num-1))]}
     info "解封IP: ${ip}..."
     local out
@@ -212,10 +212,8 @@ unban_all_sshd() {
                 info "无IP需解封"
                 return
             fi
-
             local -a ips
             read -r -a ips <<< "$ip_str"
-
             local count=0
             for ip in "${ips[@]}"; do
                 if [ "$(fail2ban-client set sshd unbanip "$ip")" = "1" ]; then
@@ -247,24 +245,19 @@ do_install() {
                 ;;
         esac
     fi
-
     info "安装Fail2Ban..."
     apt-get update -y &> /dev/null || { error "源更新失败"; return; }
     apt-get install -y fail2ban || { error "安装失败"; return; }
-
     info "创建和配置jail.local..."
     if [ -f /etc/fail2ban/jail.local ]; then
         mv /etc/fail2ban/jail.local "/etc/fail2ban/jail.local.bak_$(date +%F_%T)"
         info "备份旧配置"
     fi
     cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
-    
     configure_sshd_jail
-
     info "启动服务..."
     systemctl enable fail2ban >/dev/null 2>&1
     systemctl restart fail2ban || { error "服务启动失败!"; return; }
-    
     echo ""
     info "🎉 安装配置完成!"
     echo -e "\n${CYAN}SSHD防护状态:${NC}"
@@ -303,33 +296,24 @@ _internal_uninstall() {
 
 configure_sshd_jail() {
     info "--- 自定义防护参数 ---"
-    local d_bantime="1h"
-    local d_findtime="10m"
-    local d_maxretry="3"
-
+    local d_bantime="1h"; local d_findtime="10m"; local d_maxretry="3"
     read -p "封禁时长(默认:${d_bantime}): " bantime < /dev/tty
     bantime=${bantime:-$d_bantime}
     read -p "检测窗口(默认:${d_findtime}): " findtime < /dev/tty
     findtime=${findtime:-$d_findtime}
     read -p "最大次数(默认:${d_maxretry}): " maxretry < /dev/tty
     maxretry=${maxretry:-$d_maxretry}
-    
-    local port
-    port=$(get_ssh_config_value "Port" "22")
-    
+    local port; port=$(get_ssh_config_value "Port" "22")
     clear
     info "配置确认:"
     echo -e "  - ${CYAN}SSH端口:${NC} ${port}(自动)\n  - ${CYAN}封禁时长:${NC} ${bantime}\n  - ${CYAN}检测窗口:${NC} ${findtime}\n  - ${CYAN}最大次数:${NC} ${maxretry}"
     echo ""
     info "写入配置..."
-
     sed -i "/^\[sshd\]/,/^\[/ s/enabled[[:space:]]*=.*/enabled = true/" /etc/fail2ban/jail.local
     sed -i "/^\[sshd\]/,/^\[/ s/bantime[[:space:]]*=.*/bantime = ${bantime}/" /etc/fail2ban/jail.local
     sed -i "/^\[sshd\]/,/^\[/ s/findtime[[:space:]]*=.*/findtime = ${findtime}/" /etc/fail2ban/jail.local
     sed -i "/^\[sshd\]/,/^\[/ s/maxretry[[:space:]]*=.*/maxretry = ${maxretry}/" /etc/fail2ban/jail.local
     sed -i "/^\[sshd\]/,/^\[/ s/port\s*=.*/port = ${port}/" /etc/fail2ban/jail.local
-    
-    # Clean up and set backend/logpath
     sed -i '/^\[sshd\]/,/^\[/ { /^\s*logpath\s*=/d; /^\s*backend\s*=/d; }' /etc/fail2ban/jail.local
     if [ -f /var/log/auth.log ]; then
         info "检测到传统日志, 配置logpath..."
@@ -347,11 +331,12 @@ show_ssh_menu() {
     clear
     echo -e "${CYAN}------------------ SSH 安全管理 ------------------${NC}"
     echo "  1. 查看当前 SSH 配置"
-    echo "  2. 修改 SSH 端口号"
-    echo "  3. 管理密码登录 (开启/关闭)"
+    echo "  2. 管理密码登录 (开启/关闭)"
+    echo "  3. 管理密钥登录 (开启/关闭)"
     echo "  4. 添加公钥 (支持GitHub用户名)"
-    echo "  5. 修改用户密码"
-    echo "  6. 重启 SSHD 服务"
+    echo "  5. 修改 SSH 端口号"
+    echo "  6. 修改用户密码"
+    echo "  7. 重启 SSHD 服务"
     echo -e "\n  ${YELLOW}b. 返回主菜单${NC}"
     echo -e "${CYAN}-------------------------------------------------${NC}"
 }
@@ -362,11 +347,12 @@ manage_ssh() {
         read -p "选择: " choice < /dev/tty
         case "$choice" in
             1) view_ssh_config; pause ;;
-            2) change_ssh_port; pause ;;
-            3) toggle_password_auth; pause ;;
+            2) toggle_password_auth; pause ;;
+            3) toggle_pubkey_auth; pause ;;
             4) add_key_from_input; pause ;;
-            5) change_user_password; pause ;;
-            6) restart_sshd; pause ;;
+            5) change_ssh_port; pause ;;
+            6) change_user_password; pause ;;
+            7) restart_sshd; pause ;;
             b|B) break ;;
             *) error "无效输入"; sleep 1 ;;
         esac
@@ -385,15 +371,14 @@ view_ssh_config() {
     local pass_auth; pass_auth=$(get_ssh_config_value "PasswordAuthentication" "yes")
     local pubkey_auth; pubkey_auth=$(get_ssh_config_value "PubkeyAuthentication" "yes")
     local root_login; root_login=$(get_ssh_config_value "PermitRootLogin" "prohibit-password")
-    printf "%-25s: %s\n" "SSH 端口号" "$port"
-    printf "%-25s: %s\n" "允许密码登录" "$pass_auth"
-    printf "%-25s: %s\n" "允许密钥登录" "$pubkey_auth"
-    printf "%-25s: %s\n" "允许root登录策略" "$root_login"
+    printf "%-28s: %s\n" "SSH 端口号" "$port"
+    printf "%-28s: %s\n" "允许密码登录" "$pass_auth"
+    printf "%-28s: %s\n" "允许密钥登录" "$pubkey_auth"
+    printf "%-28s: %s\n" "允许root登录策略" "$root_login"
 }
 
 change_ssh_port() {
-    local current_port
-    current_port=$(get_ssh_config_value "Port" "22")
+    local current_port; current_port=$(get_ssh_config_value "Port" "22")
     info "当前SSH端口是: ${current_port}"
     read -p "输入新端口号(1025-65535): " new_port < /dev/tty
     if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1025 ] || [ "$new_port" -gt 65535 ]; then
@@ -407,7 +392,6 @@ change_ssh_port() {
         echo -e "\nPort ${new_port}" >> /etc/ssh/sshd_config
     fi
     info "SSH端口已更新为 ${new_port}"
-
     if check_fail2ban_installed; then
         info "同步更新Fail2Ban配置..."
         sed -i "/^\[sshd\]/,/^\[/ s/port\s*=.*/port = ${new_port}/" /etc/fail2ban/jail.local
@@ -431,13 +415,11 @@ add_key_from_input() {
         error "用户'${username}'不存在"
         return
     fi
-
     read -p "请输入 GitHub 用户名 或 完整的公钥URL: " user_input < /dev/tty
     if [ -z "$user_input" ]; then
         error "输入不能为空。"
         return
     fi
-
     local key_url
     if [[ "$user_input" == http* ]]; then
         info "检测到完整URL，将直接使用: ${user_input}"
@@ -447,31 +429,24 @@ add_key_from_input() {
         key_url="https://github.com/${user_input}.keys"
         info "将从以下URL获取公钥: ${key_url}"
     fi
-
     info "下载公钥..."
-    local key_content
-    key_content=$(curl -sSL "$key_url")
+    local key_content; key_content=$(curl -sSL "$key_url")
     if [ -z "$key_content" ] || [[ ! "$key_content" == ssh-* ]]; then
         error "下载公钥失败或内容无效。请检查URL或用户名。"
         return
     fi
-
     local home_dir; home_dir=$(eval echo "~$username")
     local ssh_dir="${home_dir}/.ssh"
     local auth_keys_file="${ssh_dir}/authorized_keys"
-
     info "配置目录权限..."
     mkdir -p "$ssh_dir"
     touch "$auth_keys_file"
     chown -R "${username}:${username}" "$ssh_dir"
     chmod 700 "$ssh_dir"
     chmod 600 "$auth_keys_file"
-    
     info "追加公钥到 ${auth_keys_file}..."
-    local tmp_key_file
-    tmp_key_file=$(mktemp)
+    local tmp_key_file; tmp_key_file=$(mktemp)
     echo "$key_content" > "$tmp_key_file"
-    
     if grep -qFf "$tmp_key_file" "$auth_keys_file"; then
         info "URL中的一个或多个公钥已存在于authorized_keys中，未添加重复项。"
     else
@@ -482,11 +457,9 @@ add_key_from_input() {
 }
 
 toggle_password_auth() {
-    local status
-    status=$(get_ssh_config_value "PasswordAuthentication" "yes")
+    local status; status=$(get_ssh_config_value "PasswordAuthentication" "yes")
     info "当前密码登录状态: ${status}"
     local new_status
-
     if [ "$status" = "yes" ]; then
         warn "准备关闭密码登录!"
         warn "关闭前请务必确认密钥登录可用, 否则将无法登录!"
@@ -504,7 +477,6 @@ toggle_password_auth() {
         fi
         new_status="yes"
     fi
-
     info "修改SSH配置文件..."
     if grep -q -i '^\s*PasswordAuthentication\s' /etc/ssh/sshd_config; then
         sed -i -E "s/^\s*PasswordAuthentication\s+(yes|no)/PasswordAuthentication ${new_status}/I" /etc/ssh/sshd_config
@@ -512,6 +484,47 @@ toggle_password_auth() {
         echo -e "\nPasswordAuthentication ${new_status}" >> /etc/ssh/sshd_config
     fi
     info "密码登录已设为: ${new_status}"
+    warn "配置已修改! 必须重启SSHD服务才能生效"
+    restart_sshd
+}
+
+toggle_pubkey_auth() {
+    local status; status=$(get_ssh_config_value "PubkeyAuthentication" "yes")
+    info "当前密钥登录状态: ${status}"
+    local new_status
+    if [ "$status" = "yes" ]; then
+        warn "准备关闭密钥登录，这是一个高风险操作！"
+        local pass_auth_status; pass_auth_status=$(get_ssh_config_value "PasswordAuthentication" "no")
+        if [ "$pass_auth_status" = "no" ]; then
+            error "致命风险：密码登录当前已被禁用！如果再禁用密钥登录，您将永久无法登录服务器！"
+            read -p "无论如何都要继续关闭密钥登录吗？ (请输入 'yes' 以确认): " choice < /dev/tty
+            if [[ "$choice" != "yes" ]]; then
+                info "操作已取消。"
+                return
+            fi
+        else
+            read -p "确定关闭密钥登录吗？ (y/N): " choice < /dev/tty
+            if [[ "$choice" != "y" && "$choice" != "Y" ]]; then
+                info "操作取消"
+                return
+            fi
+        fi
+        new_status="no"
+    else
+        read -p "确定开启密钥登录吗？ (y/N): " choice < /dev/tty
+        if [[ "$choice" != "y" && "$choice" != "Y" ]]; then
+            info "操作取消"
+            return
+        fi
+        new_status="yes"
+    fi
+    info "修改SSH配置文件..."
+    if grep -q -i '^\s*PubkeyAuthentication\s' /etc/ssh/sshd_config; then
+        sed -i -E "s/^\s*PubkeyAuthentication\s+(yes|no)/PubkeyAuthentication ${new_status}/I" /etc/ssh/sshd_config
+    else
+        echo -e "\nPubkeyAuthentication ${new_status}" >> /etc/ssh/sshd_config
+    fi
+    info "密钥登录已设为: ${new_status}"
     warn "配置已修改! 必须重启SSHD服务才能生效"
     restart_sshd
 }
@@ -527,7 +540,7 @@ restart_sshd() {
             if systemctl is-active --quiet sshd; then
                 info "✅ SSHD运行中"
             else
-                error "❌ SSHD重启失败!"
+                error "❌ SSHD重启失败! 请立即检查日志: journalctl -u sshd -n 50"
             fi
             ;;
         *)
@@ -541,35 +554,26 @@ restart_sshd() {
 # ==============================================================================
 update_script() {
     info "正在检查更新..."
-    local script_path
-    script_path=$(readlink -f "$0")
-    
-    local latest_script
-    latest_script=$(mktemp)
+    local script_path; script_path=$(readlink -f "$0")
+    local latest_script; latest_script=$(mktemp)
     if ! curl -sSL -o "$latest_script" "$SCRIPT_URL"; then
         error "下载最新脚本失败，请检查网络连接。"
         rm -f "$latest_script"
         return
     fi
-    
-    local current_version
-    current_version=$(grep -m 1 'SSHelper:' "$script_path" | awk -F'[()]' '{print $2}')
-    local latest_version
-    latest_version=$(grep -m 1 'SSHelper:' "$latest_script" | awk -F'[()]' '{print $2}')
-    
+    local current_version; current_version=$(grep -m 1 'SSHelper:' "$script_path" | awk -F'[()]' '{print $2}')
+    local latest_version; latest_version=$(grep -m 1 'SSHelper:' "$latest_script" | awk -F'[()]' '{print $2}')
     if [ -z "$current_version" ] || [ -z "$latest_version" ]; then
         error "无法解析版本号。请确保脚本头部格式正确。"
         rm -f "$latest_script"
         return
     fi
-    
     info "当前版本: ${current_version}，最新版本: ${latest_version}"
     if [ "$current_version" = "$latest_version" ]; then
         info "您当前已是最新版本。"
         rm -f "$latest_script"
         return
     fi
-    
     warn "发现新版本！"
     read -p "是否要更新到 ${latest_version}？ (y/N): " choice < /dev/tty
     case "$choice" in
