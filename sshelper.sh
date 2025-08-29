@@ -1,16 +1,16 @@
 #!/bin/bash
 
 # ==============================================================================
-# SSHelper: Fail2Ban & SSH Ultimate Management Script for Debian (v2.3)
+# SSHelper: Fail2Ban & SSH Ultimate Management Script for Debian (v2.4)
 #
 # Author: Gemini & chc880
 # Description: A comprehensive, menu-driven script to manage Fail2Ban and harden SSH.
-#              - Added a toggle for PubkeyAuthentication (key-based login).
-#              - Code reformatted for better readability and maintenance.
+#              - Code consistently formatted for readability and maintenance.
+#              - Fixed race condition error on initial status check after install.
 # ==============================================================================
 
 # --- 全局变量和颜色定义 ---
-readonly SCRIPT_VERSION="v2.3"
+readonly SCRIPT_VERSION="v2.4"
 readonly SCRIPT_URL="https://raw.githubusercontent.com/chc880/SSHelper/main/sshelper.sh"
 readonly GREEN='\033[0;32m'
 readonly YELLOW='\033[0;33m'
@@ -22,18 +22,22 @@ readonly NC='\033[0m'
 info() {
     echo -e "${GREEN}[INFO] $1${NC}"
 }
+
 warn() {
     echo -e "${YELLOW}[WARNING] $1${NC}"
 }
+
 error() {
     echo -e "${RED}[ERROR] $1${NC}"
 }
+
 check_root() {
     if [ "$(id -u)" -ne 0 ]; then
         error "此脚本需以root或sudo权限运行"
         exit 1
     fi
 }
+
 check_fail2ban_installed() {
     if command -v fail2ban-client &> /dev/null; then
         return 0
@@ -41,6 +45,7 @@ check_fail2ban_installed() {
         return 1
     fi
 }
+
 pause() {
     echo ""
     read -p "按 [Enter] 键继续..." < /dev/tty
@@ -260,6 +265,10 @@ do_install() {
     systemctl restart fail2ban || { error "服务启动失败!"; return; }
     echo ""
     info "🎉 安装配置完成!"
+    
+    info "等待服务稳定..."
+    sleep 2
+
     echo -e "\n${CYAN}SSHD防护状态:${NC}"
     fail2ban-client status sshd
 }
