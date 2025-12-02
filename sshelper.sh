@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# SSHelper: Fail2Ban & SSH Ultimate Management Script for Debian (v2.5)
+# SSHelper: Fail2Ban & SSH Ultimate Management Script for Debian (v2.6)
 #
 # Author: chc880
 # Description: A comprehensive, menu-driven script to manage Fail2Ban and harden SSH.
@@ -10,7 +10,7 @@
 # ==============================================================================
 
 # --- 全局变量和颜色定义 ---
-readonly SCRIPT_VERSION="v2.5"
+readonly SCRIPT_VERSION="v2.6"
 readonly SCRIPT_URL="https://raw.githubusercontent.com/chc880/SSHelper/main/sshelper.sh"
 readonly GREEN='\033[0;32m'
 readonly YELLOW='\033[0;33m'
@@ -66,6 +66,303 @@ pause() {
     read -p "按 [Enter] 键继续..." < /dev/tty
 }
 
+# --- 系统信息辅助函数 ---
+print_row() {
+    local l1=$1
+    local v1=$2
+    local l2=$3
+    local v2=$4
+    local ALIGN_WIDTH=45
+
+    local left_full="${YELLOW}${l1}:${NC} ${v1}"
+    local clean_l1_v1="${l1}: $(echo -e "$v1" | sed -r 's/\x1B\[[0-9;]*[mK]//g')"
+    local visual_len=$(echo -n "$clean_l1_v1" | wc -L)
+
+    local pad_len=$((ALIGN_WIDTH - visual_len))
+    if [ $pad_len -lt 1 ]; then pad_len=1; fi
+    local padding=$(printf "%${pad_len}s" "")
+
+    if [ -n "$l2" ]; then
+        printf "  %b%s| ${YELLOW}%-10s${NC} %b\n" "$left_full" "$padding" "${l2}:" "$v2"
+    else
+        printf "  %b\n" "$left_full"
+    fi
+}
+
+get_cpu_stat() {
+    read -r line < /proc/stat
+    echo "$line" | awk '{printf "%.0f %.0f %.0f", $2+$3+$4+$5+$6+$7+$8+$9+$10+$11, $5+$6, $9}'
+}
+
+get_ipv4_public() {
+    curl -s -4 --connect-timeout 2 ifconfig.co 2>/dev/null || echo "N/A"
+}
+
+get_ipv6_public() {
+    curl -s -6 --connect-timeout 2 ifconfig.co 2>/dev/null || echo "N/A"
+}
+
+get_isp_info() {
+    local ip=$1
+    if [ -n "$ip" ] && [ "$ip" != "N/A" ]; then
+        curl -s -4 --connect-timeout 2 "ipinfo.io/$ip/org" 2>/dev/null | head -1 || echo "未知"
+    else
+        echo "未知"
+    fi
+}
+
+get_location_info() {
+    local ip=$1
+    if [ -n "$ip" ] && [ "$ip" != "N/A" ]; then
+        local city country
+        city=$(curl -s -4 --connect-timeout 2 "ipinfo.io/$ip/city" 2>/dev/null || echo "未知")
+        country=$(curl -s -4 --connect-timeout 2 "ipinfo.io/$ip/country" 2>/dev/null || echo "未知")
+        echo "$city, $country"
+    else
+        echo "未知"
+    fi
+}
+
+show_system_info() {
+    clear
+    echo -e "${CYAN}正在获取系统信息...${NC}"
+
+    # 1. 异步获取网络信息
+    local tmp_dir="/tmp/sshelper_info_$$"
+    mkdir -p "$tmp_dir"
+    get_ipv4_public > "$tmp_dir/ipv4" &
+    pid_v4=$!
+    get_ipv6_public > "$tmp_dir/ipv6" &
+    pid_v6=$!
+
+    # 2. 系统信息
+    if command -v lsb_release >/dev/null 2>&1; then
+        os_name=$(lsb_release -d | cut -f2-)
+    else
+        os_name=$(grep "PRETTY_NAME" /etc/os-release | cut -d'"' -f2 2>/dev/null || uname -s)
+    fi
+    sys_ver=$(cat /etc/debian_version 2>/dev/null || echo "未知")
+    kernel_ver=$(uname -r)
+    arch_info=$(uname -m)
+    virt_type=$(systemd-detect-virt 2>/dev/null || echo "未知")
+    [ "$virt_type" = "none" ] && virt_type="物理机"
+    
+    if uptime -p >/dev/null 2>&1; then 
+        uptime_info=$(uptime -p | sed 's/up //')
+    else 
+        uptime_info=$(uptime | sed -E 's/^.* up +//; s/, *[0-9]+ users.*//; s/, *load average.*//')
+    fi
+    load_info=$(uptime | awk -F'load average:' '{print $2}' | xargs)
+    current_time=$(date '+%Y-%m-%d %H:%M:%S')
+    current_user=$(whoami)
+    hostname_info=$(hostname)
+    boot_time=$(who -b | awk '{print $3 " " $4}')
+
+    # 3. 硬件信息
+    cpu_model=$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null | cut -d':' -f2 | xargs || echo "未知")
+    cpu_count=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo "1")
+    cpu_mhz=$(grep -m1 'cpu MHz' /proc/cpuinfo 2>/dev/null | cut -d':' -f2 | xargs | awk '{printf "%.0f MHz", $1}')
+    
+    # CPU Features
+    if grep -qE 'vmx|svm' /proc/cpuinfo 2>/dev/null; then
+        virt_support="${GREEN}✅ 支持 (Nested)${NC}"
+    else
+        virt_support="${RED}❌ 不支持${NC}"
+    fi
+    if grep -q aes /proc/cpuinfo 2>/dev/null; then
+        aes_status="${GREEN}✅ 支持${NC}"
+    else
+        aes_status="${RED}❌ 不支持${NC}"
+    fi
+
+    # CPU Usage Calculation
+    read -r cur_total cur_idle cur_steal <<< $(get_cpu_stat)
+    sleep 0.5
+    read -r next_total next_idle next_steal <<< $(get_cpu_stat)
+    diff_total=$((next_total - cur_total))
+    diff_idle=$((next_idle - cur_idle))
+    diff_steal=$((next_steal - cur_steal))
+    
+    if [ "$diff_total" -gt 0 ]; then
+        cpu_usage=$(awk -v i="$diff_idle" -v t="$diff_total" 'BEGIN {printf "%.1f%%", 100 - (i/t)*100}')
+        cpu_st=$(awk -v s="$diff_steal" -v t="$diff_total" 'BEGIN {printf "%.1f", (s/t)*100}')
+    else
+        cpu_usage="0.0%"
+        cpu_st="0.0"
+    fi
+    
+    st_int=$(echo "$cpu_st" | awk -F. '{print $1}')
+    if [ "$st_int" -ge 10 ]; then st_display="${RED}${cpu_st}% (严重抢占)${NC}"; elif [ "$st_int" -gt 0 ]; then st_display="${YELLOW}${cpu_st}% (轻微争抢)${NC}"; else st_display="${GREEN}${cpu_st}% (良好)${NC}"; fi
+
+    mem_info=$(free -h | awk '/Mem:/ {print $2, $3}' 2>/dev/null)
+    mem_total=$(echo $mem_info | awk '{print $1}')
+    mem_used=$(echo $mem_info | awk '{print $2}')
+    mem_percent=$(free 2>/dev/null | awk '/Mem:/ {used=$3; total=$2; if(total>0) printf "%.1f%%", used/total*100}')
+
+    swap_info=$(free -h | awk '/Swap:/ {print $2, $3}' 2>/dev/null)
+    swap_total=$(echo $swap_info | awk '{print $1}')
+    swap_used=$(echo $swap_info | awk '{print $2}')
+    if [ -z "$swap_total" ] || [ "$swap_total" = "0B" ]; then
+        swap_display="${RED}未检测到SWAP分区${NC}"
+    else
+        swap_percent=$(free 2>/dev/null | awk '/Swap:/ {used=$3; total=$2; if(total>0) printf "%.1f%%", used/total*100}')
+        swap_display="$swap_used / $swap_total ($swap_percent)"
+    fi
+
+    # 4. 等待网络信息
+    wait $pid_v4
+    wait $pid_v6
+    ipv4_public=$(cat "$tmp_dir/ipv4")
+    ipv6_public=$(cat "$tmp_dir/ipv6")
+    
+    # 获取ISP和位置 (依赖IPv4)
+    get_isp_info "$ipv4_public" > "$tmp_dir/isp" &
+    pid_isp=$!
+    get_location_info "$ipv4_public" > "$tmp_dir/loc" &
+    pid_loc=$!
+    wait $pid_isp
+    wait $pid_loc
+    isp_info=$(cat "$tmp_dir/isp")
+    location_info=$(cat "$tmp_dir/loc")
+    
+    rm -rf "$tmp_dir"
+
+    ipv4_local=$(hostname -I 2>/dev/null | awk '{print $1}')
+    ipv6_local=$(ip -6 addr show 2>/dev/null | grep -oP 'inet6 \K[^\s/]+' | grep -v '^::1$' | head -1)
+    [ -z "$ipv6_local" ] && ipv6_local="未检测到"
+    
+    [ "$ipv4_public" = "N/A" ] && ipv4_public="${RED}❌ 无法获取${NC}"
+    [ "$ipv6_public" = "N/A" ] && ipv6_public="${RED}❌ 无法获取${NC}"
+
+    default_interface=$(ip route get 8.8.8.8 2>/dev/null | awk '{for(i=1;i<=NF;i++) if ($i=="dev") print $(i+1)}')
+    if [ -n "$default_interface" ]; then
+        mac_address=$(ip link show "$default_interface" 2>/dev/null | awk '/link\/ether/ {print $2; exit}' || echo "未知")
+        rx=$(cat /sys/class/net/"$default_interface"/statistics/rx_bytes 2>/dev/null || echo 0)
+        tx=$(cat /sys/class/net/"$default_interface"/statistics/tx_bytes 2>/dev/null || echo 0)
+        rx_h=$(awk -v b=$rx 'BEGIN{printf "%.2f GB", b/1024/1024/1024}')
+        tx_h=$(awk -v b=$tx 'BEGIN{printf "%.2f GB", b/1024/1024/1024}')
+    else
+        default_interface="未知"
+        mac_address="未知"
+        rx_h="0 GB"
+        tx_h="0 GB"
+    fi
+    
+    dns_servers=$(grep -oP 'nameserver\s+\K\S+' /etc/resolv.conf 2>/dev/null | head -3 | tr '\n' ',' | sed 's/,$//')
+    timezone=$(timedatectl show --property=Timezone --value 2>/dev/null || date '+%Z')
+
+    # 5. 网络加速状态 (BBR)
+    tcp_congestion_control=$(sysctl net.ipv4.tcp_congestion_control 2>/dev/null | awk '{print $3}')
+    if [[ "$tcp_congestion_control" == "bbr" ]]; then
+        bbr_status="${GREEN}已启用${NC}"
+        if lsmod | grep -q bbr; then bbr_status="${bbr_status} (模块已加载)"; fi
+    else
+        bbr_status="${RED}未启用${NC}"
+    fi
+    
+    tcp_qdisc=$(sysctl net.core.default_qdisc 2>/dev/null | awk '{print $3}')
+    if [[ "$tcp_qdisc" == "fq" || "$tcp_qdisc" == "cake" ]]; then
+        qdisc_status="${GREEN}${tcp_qdisc}${NC}"
+    else
+        qdisc_status="${YELLOW}${tcp_qdisc}${NC}"
+    fi
+
+    # --- 展示 ---
+    clear
+    echo -e "${CYAN}====================================================${NC}"
+    echo -e "${CYAN}               系统信息概览                        ${NC}"
+    echo -e "${CYAN}====================================================${NC}"
+    
+    echo -e "${GREEN}🖥️  系统信息${NC}"
+    print_row "操作系统" "$os_name" "系统版本" "$sys_ver"
+    print_row "内核版本" "$kernel_ver" "系统架构" "$arch_info"
+    print_row "虚拟化" "$virt_type" "登录用户" "$current_user"
+    print_row "主机名" "$hostname_info" "运行时间" "$uptime_info"
+    print_row "启动时间" "$boot_time" "系统负载" "$load_info"
+    echo -e "${CYAN}----------------------------------------------------${NC}"
+
+    echo -e "${GREEN}⚙️  硬件资源${NC}"
+    echo -e "  ${YELLOW}CPU型号:${NC} $cpu_model"
+    print_row "CPU核心" "${cpu_count} 核心" "CPU频率" "$cpu_mhz"
+    print_row "CPU使用" "$cpu_usage" "VM-x/AMD-V" "$virt_support"
+    print_row "内存使用" "${mem_used}/${mem_total} ($mem_percent)" "AES指令集" "$aes_status"
+    print_row "SWAP使用" "$swap_display" "CPU窃取" "$st_display"
+    echo -e "${CYAN}----------------------------------------------------${NC}"
+
+    echo -e "${GREEN}🌐 网络信息${NC}"
+    echo -e "  ${YELLOW}运营商:${NC} $isp_info"
+    echo -e "  ${YELLOW}地理位置:${NC} $location_info"
+    print_row "默认网卡" "$default_interface" "公网IPv4" "$ipv4_public"
+    print_row "MAC地址" "$mac_address" "内网IPv4" "$ipv4_local"
+    print_row "入站流量" "$rx_h" "公网IPv6" "$ipv6_public"
+    print_row "出站流量" "$tx_h" "内网IPv6" "$ipv6_local"
+    print_row "系统时间" "$current_time" "DNS服务器" "$dns_servers"
+    print_row "时区信息" "$timezone" "" ""
+    echo -e "${CYAN}----------------------------------------------------${NC}"
+
+    echo -e "${GREEN}💽 磁盘使用情况${NC}"
+    df -h 2>/dev/null | grep -vE 'overlay|tmpfs|udev|loop' | awk 'NR==1{printf "  %-20s %-10s %-10s %-10s %-10s\n", $1, $2, $3, $4, $6} NR>1{printf "  %-20s %-10s %-10s %-10s %-10s\n", $1, $2, $3, $4, $6}'
+    echo -e "${CYAN}----------------------------------------------------${NC}"
+
+    echo -e "${GREEN}🔧 系统服务状态${NC}"
+    local services=("ssh" "nginx" "apache2" "mysql" "mariadb" "docker" "ufw" "fail2ban")
+    local svc_labels=()
+    local svc_values=()
+
+    for service in "${services[@]}"; do
+        local status="inactive"
+        local version=""
+        local port_info=""
+        
+        if systemctl list-unit-files --type=service 2>/dev/null | grep -qE "^${service}"; then
+            status=$(systemctl is-active "$service" 2>/dev/null || echo "inactive")
+            if [ "$service" == "ufw" ]; then
+                if command -v ufw >/dev/null 2>&1 && ufw status | grep -q "Status: active"; then status="active"; else status="inactive"; fi
+            fi
+            
+            case $service in
+                ssh) version=$(ssh -V 2>&1 | awk '{print $1}' | sed 's/^OpenSSH_//');;
+                nginx) version=$(nginx -v 2>&1 | awk -F'/' '{print $2}' | awk '{print $1}');;
+                apache2) version=$(apache2ctl -v 2>&1 | grep 'Server version' | awk -F'/' '{print $2}' | awk '{print $1}');;
+                mysql) version=$(mysql --version 2>&1 | awk '{print $5}' | sed 's/,//');;
+                mariadb) version=$(mariadb --version 2>&1 | awk '{print $5}' | sed 's/,//');;
+                docker) version=$(docker --version 2>&1 | awk '{print $3}' | sed 's/,//');;
+                ufw) version=$(ufw --version 2>&1 | awk '{print $2}');;
+                fail2ban) version=$(fail2ban-client --version 2>&1 | awk '{print $3}');;
+            esac
+            version=$(echo "$version" | tr -d '\n')
+            [ -n "$version" ] && version="(v$version)"
+
+            if [ "$service" = "ssh" ] && [ "$status" = "active" ]; then
+                local cp=$(grep -E "^Port" /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -1)
+                port_info="(端口:${cp:-22})"
+            fi
+            
+            svc_labels+=("${service^}")
+            if [ "$status" = "active" ]; then
+                svc_values+=("${GREEN}✅ 运行中${NC} $version $port_info")
+            else
+                svc_values+=("${YELLOW}⚠️  未运行${NC} $version")
+            fi
+        else
+            svc_labels+=("${service^}")
+            svc_values+=("${NC}🔘 未安装${NC}")
+        fi
+    done
+
+    local len=${#svc_labels[@]}
+    for ((i=0; i<len; i+=2)); do
+        print_row "${svc_labels[i]}" "${svc_values[i]}" "${svc_labels[i+1]}" "${svc_values[i+1]}"
+    done
+    echo -e "${CYAN}----------------------------------------------------${NC}"
+
+    echo -e "${GREEN}🚀 网络加速状态${NC}"
+    print_row "BBR状态" "$bbr_status" "BBR调度算法" "$qdisc_status"
+
+    echo -e "${CYAN}====================================================${NC}"
+    pause
+}
+
 # --- 主菜单 ---
 show_main_menu() {
     local display_version
@@ -74,9 +371,12 @@ show_main_menu() {
     echo -e "${CYAN}====================================================${NC}"
     echo -e "${CYAN}     SSHelper 终极管理脚本 (${display_version:-$SCRIPT_VERSION}) (Debian)      ${NC}"
     echo -e "${CYAN}====================================================${NC}"
+    echo "  0. 查看系统信息"
     echo "  1. Fail2Ban 管理 (安装、状态、解封...)"
     echo "  2. SSH 安全管理 (端口、密钥、密码登录...)"
     echo "  3. 更新脚本"
+    echo "  4. 科技lion一键脚本工具"
+    echo "  5. NodeQuality 质量测试"
     echo -e "\n  q. 退出脚本"
     echo -e "${CYAN}----------------------------------------------------${NC}"
 }
@@ -627,11 +927,14 @@ main() {
     check_root
     while true; do
         show_main_menu
-        read -p "请输入您的选择 [1-3, q]: " choice < /dev/tty
+        read -p "请输入您的选择 [0-5, q]: " choice < /dev/tty
         case "$choice" in
+            0) show_system_info ;;
             1) manage_fail2ban ;;
             2) manage_ssh ;;
             3) update_script; pause ;;
+            4) bash <(curl -sL kejilion.sh); pause ;;
+            5) bash <(curl -sL https://run.NodeQuality.com); pause ;;
             q|Q) echo "正在退出脚本..."; exit 0 ;;
             *) error "无效输入"; sleep 1 ;;
         esac
