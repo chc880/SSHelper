@@ -1,16 +1,16 @@
 #!/bin/bash
 
 # ==============================================================================
-# SSHelper: Fail2Ban & SSH Ultimate Management Script for Debian (v2.4)
+# SSHelper: Fail2Ban & SSH Ultimate Management Script for Debian (v2.5)
 #
-# Author: Gemini & chc880
+# Author: chc880
 # Description: A comprehensive, menu-driven script to manage Fail2Ban and harden SSH.
 #              - Code consistently formatted for readability and maintenance.
 #              - Fixed race condition error on initial status check after install.
 # ==============================================================================
 
 # --- 全局变量和颜色定义 ---
-readonly SCRIPT_VERSION="v2.4"
+readonly SCRIPT_VERSION="v2.5"
 readonly SCRIPT_URL="https://raw.githubusercontent.com/chc880/SSHelper/main/sshelper.sh"
 readonly GREEN='\033[0;32m'
 readonly YELLOW='\033[0;33m'
@@ -32,8 +32,23 @@ error() {
 }
 
 check_root() {
-    if [ "$(id -u)" -ne 0 ]; then
-        error "此脚本需以root或sudo权限运行"
+    if [ "$(id -u)" -eq 0 ]; then
+        if ! command -v sudo &> /dev/null; then
+            info "检测到系统中未安装 sudo，正在自动安装..."
+            apt-get update -y &> /dev/null
+            if apt-get install -y sudo &> /dev/null; then
+                info "✅ sudo 安装成功"
+            else
+                warn "sudo 安装失败，请稍后手动安装。"
+            fi
+        fi
+    else
+        if command -v sudo &> /dev/null; then
+            error "权限不足。请使用 sudo 运行此脚本: sudo $0 $@"
+        else
+            error "权限不足。此脚本需要 root 权限。"
+            error "您的系统中未找到 sudo 命令，请使用 'su -' 切换到 root 用户后再次运行。"
+        fi
         exit 1
     fi
 }
